@@ -40,9 +40,12 @@ export interface User {
   totalWithdrawn: number;
   totalDeposited: number;
   totalCommissions: number;
-  girosRoleta: number; // ✅ Padronizado
+  girosRoleta: number;
   role: string;
   createdAt: any;
+  // ✅ Novos campos para o Check-in persistente
+  lastCheckIn?: any; 
+  checkInStreak: number;
 }
 
 interface AuthContextType {
@@ -55,6 +58,8 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
   updateBalance: (amount: number) => Promise<void>;
   completeSpin: (prizeAmount: number) => Promise<void>;
+  // ✅ Função para processar o check-in no banco
+  processCheckIn: (amount: number, nextDay: number) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -123,11 +128,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           totalWithdrawn: data.totalWithdrawn || 0,
           totalDeposited: data.totalDeposited || 0,
           totalCommissions: data.totalCommissions || 0,
-          girosRoleta: data.girosRoleta || 0, // ✅ Bate exatamente com o banco
+          girosRoleta: data.girosRoleta || 0,
           role: data.role || 'user',
           referredBy: data.referredBy || data.invitedBy || null,
           invitedBy: data.invitedBy || null,
-          createdAt: data.createdAt
+          createdAt: data.createdAt,
+          // ✅ Sincronizando campos de check-in
+          lastCheckIn: data.lastCheckIn || null,
+          checkInStreak: data.checkInStreak || 0
         } as User);
       });
 
@@ -142,7 +150,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   /* =========================
-     REGISTER & AUTH
+      REGISTER & AUTH
   ========================= */
 
   const register = async (
@@ -187,7 +195,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       totalWithdrawn: 0,
       totalDeposited: 0,
       totalCommissions: 0,
-      girosRoleta: 1, // ✅ Um giro inicial
+      girosRoleta: 1, 
+      checkInStreak: 0, // ✅ Começa com 0 check-ins
       role: 'user',
       createdAt: serverTimestamp()
     });
@@ -211,9 +220,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateBalance = async (amount: number) => {
     if (!auth.currentUser) return;
-
     const userRef = doc(db, 'users', auth.currentUser.uid);
-
     await updateDoc(userRef, {
       balance: increment(amount),
       totalEarned: increment(amount)
@@ -222,23 +229,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const completeSpin = async (prizeAmount: number) => {
     if (!auth.currentUser) return;
-
     const uid = auth.currentUser.uid;
     const userRef = doc(db, 'users', uid);
 
-    // ✅ Atualiza o saldo e tira 1 giro
     await updateDoc(userRef, {
       girosRoleta: increment(-1),
       balance: increment(prizeAmount),
       totalEarned: increment(prizeAmount)
     });
 
-    // ✅ Cria o histórico para aparecer na tela de transações
     await addDoc(collection(db, 'users', uid, 'transactions'), {
       type: 'roulette',
       amount: prizeAmount,
       status: 'completed',
       description: 'Prêmio da roleta',
+      createdAt: serverTimestamp()
+    });
+  };
+
+  // ✅ NOVA FUNÇÃO: Processar Check-in de forma segura no banco
+  const processCheckIn = async (amount: number, nextDay: number) => {
+    if (!auth.currentUser) return;
+    const uid = auth.currentUser.uid;
+    const userRef = doc(db, 'users', uid);
+
+    await updateDoc(userRef, {
+      balance: increment(amount),
+      totalEarned: increment(amount),
+      checkInStreak: nextDay,
+      lastCheckIn: serverTimestamp() // Sempre usa a hora oficial do servidor
+    });
+
+    // Adiciona ao extrato de transações do usuário
+    await addDoc(collection(db, 'users', uid, 'transactions'), {
+      type: 'checkin',
+      amount: amount,
+      status: 'completed',
+      description: `Bônus Diário - Dia ${nextDay}`,
       createdAt: serverTimestamp()
     });
   };
@@ -260,7 +287,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         resetPassword,
         refreshUser,
         updateBalance,
-        completeSpin
+        completeSpin,
+        processCheckIn // ✅ Disponível para o componente
       }}
     >
       {children}
