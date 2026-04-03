@@ -1,25 +1,40 @@
 // ========================================
-// NETLIFY FUNCTION: Criar Solicitação de Saque (Fluxo com Aprovação Admin)
+// NETLIFY FUNCTION: Criar Solicitação de Saque (Corrigida)
 // ========================================
-// POST /.netlify/functions/create-withdraw
 
 const admin = require('firebase-admin');
 
-// Inicialização do Firebase
-if (!admin.apps.length) {
+// Função para inicializar o Firebase com segurança
+function getDb() {
+  if (admin.apps.length > 0) {
+    return admin.firestore();
+  }
+
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   const privateKey = process.env.FIREBASE_PRIVATE_KEY;
-  if (privateKey) {
+
+  // Verificação de segurança para logs do Netlify
+  if (!projectId || !clientEmail || !privateKey) {
+    console.error("❌ ERRO: Variáveis de ambiente do Firebase ausentes no Netlify!");
+    return null;
+  }
+
+  try {
     admin.initializeApp({
       credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        projectId: projectId,
+        clientEmail: clientEmail,
+        // O replace é vital para converter as quebras de linha da chave privada
         privateKey: privateKey.replace(/\\n/g, '\n')
       })
     });
+    return admin.firestore();
+  } catch (error) {
+    console.error("❌ ERRO ao inicializar Firebase Admin:", error);
+    return null;
   }
 }
-
-const db = admin.apps.length ? admin.firestore() : null;
 
 exports.handler = async (event) => {
   const headers = {
@@ -31,6 +46,8 @@ exports.handler = async (event) => {
 
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
   if (event.httpMethod !== 'POST') return { statusCode: 405, headers, body: JSON.stringify({ error: 'Método não permitido' }) };
+
+  const db = getDb(); // Inicializa ou recupera a conexão aqui
 
   try {
     const { userId, amount, pixKey, pixType, ownerName, ownerDocument } = JSON.parse(event.body);
@@ -45,7 +62,13 @@ exports.handler = async (event) => {
       return { statusCode: 400, headers, body: JSON.stringify({ error: 'O valor mínimo para saque é R$ 35,00' }) };
     }
 
-    if (!db) throw new Error("Conexão com Banco de Dados falhou.");
+    if (!db) {
+      return { 
+        statusCode: 500, 
+        headers, 
+        body: JSON.stringify({ error: 'Conexão com Banco de Dados falhou. Verifique as chaves no Netlify.' }) 
+      };
+    }
 
     const userRef = db.collection('users').doc(userId);
     const userDoc = await userRef.get();
@@ -54,27 +77,25 @@ exports.handler = async (event) => {
       return { statusCode: 404, headers, body: JSON.stringify({ error: 'Usuário não encontrado' }) };
     }
 
-    // 2. Cálculo de Taxa (Exemplo: 10% de taxa sobre o valor solicitado)
+    // 2. Cálculo de Saldo e Taxa
     const balance = userDoc.data().balance || 0;
     const taxa = valorSaque * 0.10;
     const valorLiquido = valorSaque - taxa; 
 
-    // O valor debitado do saldo do usuário é o valor TOTAL que ele pediu
     if (balance < valorSaque) {
       return { statusCode: 400, headers, body: JSON.stringify({ error: 'Saldo insuficiente para este saque.' }) };
     }
 
-    // 3. Processamento via Batch (Garante que tudo aconteça ou nada aconteça)
+    // 3. Processamento via Batch (Seguro)
     const batch = db.batch();
 
-    // Debitar o saldo do usuário imediatamente (o dinheiro fica "retido")
+    // Debitar saldo
     batch.update(userRef, {
       balance: admin.firestore.FieldValue.increment(-valorSaque),
       totalWithdrawn: admin.firestore.FieldValue.increment(valorSaque)
     });
 
-    // Criar o documento de saque na sub-coleção do usuário
-    // IMPORTANTE: Status 'processing' para que o Admin veja no painel
+    // Criar documento de saque
     const withdrawalRef = userRef.collection('withdrawals').doc();
     batch.set(withdrawalRef, {
       amount: valorSaque,
@@ -84,12 +105,12 @@ exports.handler = async (event) => {
       pixType: pixType,
       ownerName: ownerName || '',
       ownerDocument: ownerDocument || '',
-      status: 'processing', // Aguardando o admin aprovar
+      status: 'processing',
       gateway: 'evopay',
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
-    // Criar um registro na timeline de transações do usuário
+    // Criar histórico na timeline
     const transactionRef = userRef.collection('transactions').doc();
     batch.set(transactionRef, {
       type: 'withdrawal',
