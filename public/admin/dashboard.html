@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Admin - Monety</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: #0a0a0a;
+      color: #fff;
+      min-height: 100vh;
+    }
+
+    .header {
+      background: rgba(26, 26, 26, 0.8);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(34, 197, 94, 0.2);
+      padding: 20px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #22c55e 0%, #15803d 100%);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: 800;
+    }
+
+    .logo-text {
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .admin-info {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .admin-email {
+      color: #888;
+      font-size: 14px;
+    }
+
+    .logout-btn {
+      padding: 8px 20px;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 8px;
+      color: #fca5a5;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+
+    .logout-btn:hover {
+      background: rgba(239, 68, 68, 0.2);
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 40px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 30px;
+      border-bottom: 1px solid rgba(34, 197, 94, 0.2);
+      padding-bottom: 0;
+    }
+
+    .tab {
+      padding: 12px 24px;
+      background: transparent;
+      border: none;
+      color: #888;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 16px;
+      border-bottom: 3px solid transparent;
+      transition: all 0.3s ease;
+    }
+
+    .tab:hover {
+      color: #22c55e;
+    }
+
+    .tab.active {
+      color: #22c55e;
+      border-bottom-color: #22c55e;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+      animation: fadeIn 0.4s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+
+    .stat-card {
+      background: rgba(26, 26, 26, 0.8);
+      border: 1px solid rgba(34, 197, 94, 0.2);
+      border-radius: 16px;
+      padding: 24px;
+    }
+
+    .stat-label {
+      color: #888;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-size: 32px;
+      font-weight: 800;
+      color: #22c55e;
+    }
+
+    .search-bar {
+      width: 100%;
+      max-width: 500px;
+      padding: 12px 20px;
+      background: rgba(34, 34, 34, 0.6);
+      border: 1px solid rgba(34, 197, 94, 0.2);
+      border-radius: 10px;
+      color: white;
+      font-size: 16px;
+      margin-bottom: 20px;
+    }
+
+    .search-bar:focus {
+      outline: none;
+      border-color: #22c55e;
+    }
+
+    .table-container {
+      background: rgba(26, 26, 26, 0.8);
+      border: 1px solid rgba(34, 197, 94, 0.2);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th {
+      background: rgba(34, 197, 94, 0.1);
+      padding: 16px;
+      text-align: left;
+      font-weight: 600;
+      color: #22c55e;
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+
+    td {
+      padding: 16px;
+      border-top: 1px solid rgba(34, 197, 94, 0.1);
+      color: #ddd;
+    }
+
+    tr:hover {
+      background: rgba(34, 197, 94, 0.05);
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-size: 14px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(34, 197, 94, 0.3);
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-danger:hover {
+      background: rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-warning {
+      background: rgba(251, 191, 36, 0.2);
+      color: #fcd34d;
+      border: 1px solid rgba(251, 191, 36, 0.3);
+    }
+
+    .btn-warning:hover {
+      background: rgba(251, 191, 36, 0.3);
+    }
+
+    .action-buttons {
+      display: flex;
+      gap: 8px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .badge-success {
+      background: rgba(34, 197, 94, 0.2);
+      color: #22c55e;
+    }
+
+    .badge-warning {
+      background: rgba(251, 191, 36, 0.2);
+      color: #fcd34d;
+    }
+
+    .badge-danger {
+      background: rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal.active {
+      display: flex;
+    }
+
+    .modal-content {
+      background: #1a1a1a;
+      border: 1px solid rgba(34, 197, 94, 0.2);
+      border-radius: 16px;
+      padding: 30px;
+      max-width: 500px;
+      width: 90%;
+      animation: slideUp 0.3s ease-out;
+    }
+
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .modal-header {
+      margin-bottom: 20px;
+    }
+
+    .modal-title {
+      font-size: 24px;
+      font-weight: 700;
+      color: #22c55e;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      color: #ddd;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 12px;
+      background: rgba(34, 34, 34, 0.6);
+      border: 1px solid rgba(34, 197, 94, 0.2);
+      border-radius: 8px;
+      color: white;
+      font-size: 16px;
+    }
+
+    input:focus, select:focus {
+      outline: none;
+      border-color: #22c55e;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      margin-top: 24px;
+    }
+
+    .loading-spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(34, 197, 94, 0.2);
+      border-top-color: #22c55e;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #888;
+    }
+
+    .empty-state-icon {
+      font-size: 64px;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <div class="logo-icon">M</div>
+      <div class="logo-text">Monety Admin</div>
+    </div>
+    <div class="admin-info">
+      <span class="admin-email" id="adminEmail"></span>
+      <button class="logout-btn" onclick="logout()">Sair</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total de Usuários</div>
+        <div class="stat-value" id="totalUsers">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Saques Pendentes</div>
+        <div class="stat-value" id="pendingWithdrawals">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Depósitos Hoje</div>
+        <div class="stat-value" id="todayDeposits">R$ 0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Usuários Ativos</div>
+        <div class="stat-value" id="activeUsers">0</div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('users')">Usuários</button>
+      <button class="tab" onclick="switchTab('withdrawals')">Saques</button>
+      <button class="tab" onclick="switchTab('deposits')">Depósitos</button>
+    </div>
+
+    <div id="users-tab" class="tab-content active">
+      <input type="text" class="search-bar" placeholder="Buscar por email ou ID..." id="userSearch" onkeyup="filterUsers()" />
+      
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Saldo</th>
+              <th>Total Ganho</th>
+              <th>Status</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody">
+            <tr>
+              <td colspan="5" style="text-align: center; padding: 40px;">
+                <div class="loading-spinner"></div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="withdrawals-tab" class="tab-content">
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Usuário</th>
+              <th>Valor Solicitado</th>
+              <th>Líquido (-10%)</th>
+              <th>Chave PIX</th>
+              <th>Status</th>
+              <th>Data</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="withdrawalsTableBody">
+            <tr>
+              <td colspan="7" style="text-align: center; padding: 40px;">
+                <div class="loading-spinner"></div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="deposits-tab" class="tab-content">
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Usuário</th>
+              <th>Valor</th>
+              <th>Status</th>
+              <th>Data</th>
+              <th>Gateway ID</th>
+            </tr>
+          </thead>
+          <tbody id="depositsTableBody">
+            <tr>
+              <td colspan="5" style="text-align: center; padding: 40px;">
+                <div class="loading-spinner"></div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="balanceModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title">Editar Saldo</h2>
+      </div>
+      <div class="form-group">
+        <label>Email do Usuário</label>
+        <input type="text" id="modalUserEmail" readonly />
+      </div>
+      <div class="form-group">
+        <label>Novo Saldo (R$)</label>
+        <input type="number" id="modalBalance" step="0.01" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-danger" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="updateBalance()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="confirmModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="confirmTitle">Confirmar</h2>
+      </div>
+      <p id="confirmMessage" style="color: #ddd; margin-bottom: 20px;"></p>
+      <div class="modal-actions">
+        <button class="btn btn-danger" onclick="closeConfirmModal()">Cancelar</button>
+        <button class="btn btn-primary" id="confirmBtn">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js';
+    import { getAuth } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js';
+    import { getFirestore, collection, getDocs, doc, updateDoc, getDoc, query, where, orderBy, limit, Timestamp } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js';
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBo05t4KVpfwF9biqW6DdthsFJAHjrDroE",
+      authDomain: "monety-site-2.firebaseapp.com",
+      projectId: "monety-site-2",
+      storageBucket: "monety-site-2.firebasestorage.app",
+      messagingSenderId: "99984573236",
+      appId: "1:99984573236:web:3dd0f46f383bf8fd211b61"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // Verificar autenticação
+    const adminAuth = localStorage.getItem('adminAuth');
+    if (!adminAuth) {
+      window.location.href = 'index.html';
+    } else {
+      const adminData = JSON.parse(adminAuth);
+      document.getElementById('adminEmail').textContent = adminData.email;
+    }
+
+    let allUsers = [];
+    let selectedUserId = null;
+
+    // Carregar dados
+    async function loadDashboard() {
+      await Promise.all([
+        loadUsers(),
+        loadWithdrawals(),
+        loadDeposits(),
+        loadStats()
+      ]);
+    }
+
+    async function loadUsers() {
+      try {
+        const usersSnapshot = await getDocs(collection(db, 'users'));
+        allUsers = [];
+        
+        usersSnapshot.forEach((doc) => {
+          const data = doc.data();
+          allUsers.push({
+            id: doc.id,
+            email: data.email,
+            balance: data.balance || 0,
+            totalEarned: data.totalEarned || 0,
+            banned: data.banned || false,
+            role: data.role || 'user'
+          });
+        });
+
+        renderUsers(allUsers);
+      } catch (error) {
+        console.error('Erro ao carregar usuários:', error);
+      }
+    }
+
+    function renderUsers(users) {
+      const tbody = document.getElementById('usersTableBody');
+      
+      if (users.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><div class="empty-state-icon">👥</div><div>Nenhum usuário encontrado</div></td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = users.map(user => `
+        <tr>
+          <td>${user.email}</td>
+          <td>R$ ${Number(user.balance).toFixed(2)}</td>
+          <td>R$ ${Number(user.totalEarned).toFixed(2)}</td>
+          <td>
+            <span class="badge ${user.banned ? 'badge-danger' : 'badge-success'}">
+              ${user.banned ? 'Banido' : 'Ativo'}
+            </span>
+            ${user.role === 'admin' ? '<span class="badge badge-warning">Admin</span>' : ''}
+          </td>
+          <td>
+            <div class="action-buttons">
+              <button class="btn btn-primary" onclick="openBalanceModal('${user.id}', '${user.email}', ${user.balance})">
+                Editar Saldo
+              </button>
+              <button class="btn ${user.banned ? 'btn-primary' : 'btn-danger'}" onclick="toggleBan('${user.id}', ${user.banned})">
+                ${user.banned ? 'Desbanir' : 'Banir'}
+              </button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function loadWithdrawals() {
+      try {
+        const usersSnapshot = await getDocs(collection(db, 'users'));
+        const withdrawals = [];
+
+        for (const userDoc of usersSnapshot.docs) {
+          const withdrawalsSnapshot = await getDocs(collection(db, 'users', userDoc.id, 'withdrawals'));
+          
+          withdrawalsSnapshot.forEach((doc) => {
+            const data = doc.data();
+            withdrawals.push({
+              id: doc.id,
+              userId: userDoc.id,
+              userEmail: userDoc.data().email,
+              amount: data.amount,
+              pixKey: data.pixKey,
+              pixType: data.pixType,
+              status: data.status,
+              createdAt: data.createdAt
+            });
+          });
+        }
+
+        withdrawals.sort((a, b) => {
+          const aTime = a.createdAt?.toMillis?.() || 0;
+          const bTime = b.createdAt?.toMillis?.() || 0;
+          return bTime - aTime;
+        });
+
+        renderWithdrawals(withdrawals);
+      } catch (error) {
+        console.error('Erro ao carregar saques:', error);
+      }
+    }
+
+    function renderWithdrawals(withdrawals) {
+      const tbody = document.getElementById('withdrawalsTableBody');
+      
+      if (withdrawals.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="empty-state-icon">💰</div><div>Nenhum saque encontrado</div></td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = withdrawals.map(w => {
+        const date = w.createdAt?.toDate?.() || new Date();
+        const statusBadge = w.status === 'completed' ? 'badge-success' : 
+                           w.status === 'processing' ? 'badge-warning' : 'badge-danger';
+        
+        const amount = Number(w.amount) || 0;
+        const netAmount = amount * 0.90; // Desconto de 10% aplicado aqui
+        
+        return `
+          <tr>
+            <td>${w.userEmail}</td>
+            <td>R$ ${amount.toFixed(2)}</td>
+            <td style="color: #22c55e; font-weight: bold;">R$ ${netAmount.toFixed(2)}</td>
+            <td>${w.pixType}: ${w.pixKey}</td>
+            <td><span class="badge ${statusBadge}">${w.status}</span></td>
+            <td>${date.toLocaleDateString('pt-BR')}</td>
+            <td>
+              ${w.status === 'processing' ? `
+                <div class="action-buttons">
+                  <button class="btn btn-primary" onclick="approveWithdrawal('${w.userId}', '${w.id}')">Aprovar</button>
+                  <button class="btn btn-danger" onclick="rejectWithdrawal('${w.userId}', '${w.id}')">Rejeitar</button>
+                </div>
+              ` : '-'}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function loadDeposits() {
+      try {
+        const usersSnapshot = await getDocs(collection(db, 'users'));
+        const deposits = [];
+
+        for (const userDoc of usersSnapshot.docs) {
+          const depositsSnapshot = await getDocs(collection(db, 'users', userDoc.id, 'deposits'));
+          
+          depositsSnapshot.forEach((doc) => {
+            const data = doc.data();
+            deposits.push({
+              id: doc.id,
+              userId: userDoc.id,
+              userEmail: userDoc.data().email,
+              amount: data.amount,
+              status: data.status,
+              gatewayId: data.gatewayId,
+              createdAt: data.createdAt
+            });
+          });
+        }
+
+        deposits.sort((a, b) => {
+          const aTime = a.createdAt?.toMillis?.() || 0;
+          const bTime = b.createdAt?.toMillis?.() || 0;
+          return bTime - aTime;
+        });
+
+        renderDeposits(deposits);
+      } catch (error) {
+        console.error('Erro ao carregar depósitos:', error);
+      }
+    }
+
+    function renderDeposits(deposits) {
+      const tbody = document.getElementById('depositsTableBody');
+      
+      if (deposits.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><div class="empty-state-icon">💳</div><div>Nenhum depósito encontrado</div></td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = deposits.map(d => {
+        const date = d.createdAt?.toDate?.() || new Date();
+        const statusBadge = d.status === 'completed' ? 'badge-success' : 
+                           d.status === 'pending' ? 'badge-warning' : 'badge-danger';
+        
+        return `
+          <tr>
+            <td>${d.userEmail}</td>
+            <td>R$ ${Number(d.amount).toFixed(2)}</td>
+            <td><span class="badge ${statusBadge}">${d.status}</span></td>
+            <td>${date.toLocaleDateString('pt-BR')}</td>
+            <td>${d.gatewayId || '-'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function loadStats() {
+      try {
+        const usersSnapshot = await getDocs(collection(db, 'users'));
+        let totalUsers = 0;
+        let activeUsers = 0;
+        let pendingWithdrawals = 0;
+        let todayDeposits = 0;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        for (const userDoc of usersSnapshot.docs) {
+          const userData = userDoc.data();
+          totalUsers++;
+          if (!userData.banned) activeUsers++;
+
+          const withdrawalsSnapshot = await getDocs(
+            query(collection(db, 'users', userDoc.id, 'withdrawals'), where('status', '==', 'processing'))
+          );
+          pendingWithdrawals += withdrawalsSnapshot.size;
+
+          const depositsSnapshot = await getDocs(collection(db, 'users', userDoc.id, 'deposits'));
+          depositsSnapshot.forEach((doc) => {
+            const data = doc.data();
+            const depositDate = data.createdAt?.toDate?.() || new Date(0);
+            if (depositDate >= today && data.status === 'completed') {
+              todayDeposits += Number(data.amount) || 0;
+            }
+          });
+        }
+
+        document.getElementById('totalUsers').textContent = totalUsers;
+        document.getElementById('activeUsers').textContent = activeUsers;
+        document.getElementById('pendingWithdrawals').textContent = pendingWithdrawals;
+        document.getElementById('todayDeposits').textContent = `R$ ${todayDeposits.toFixed(2)}`;
+      } catch (error) {
+        console.error('Erro ao carregar estatísticas:', error);
+      }
+    }
+
+    // Funções globais
+    window.switchTab = function(tab) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      
+      event.target.classList.add('active');
+      document.getElementById(`${tab}-tab`).classList.add('active');
+    };
+
+    window.filterUsers = function() {
+      const search = document.getElementById('userSearch').value.toLowerCase();
+      const filtered = allUsers.filter(u => 
+        u.email.toLowerCase().includes(search) || 
+        u.id.toLowerCase().includes(search)
+      );
+      renderUsers(filtered);
+    };
+
+    window.openBalanceModal = function(userId, email, currentBalance) {
+      selectedUserId = userId;
+      document.getElementById('modalUserEmail').value = email;
+      document.getElementById('modalBalance').value = currentBalance;
+      document.getElementById('balanceModal').classList.add('active');
+    };
+
+    window.closeModal = function() {
+      document.getElementById('balanceModal').classList.remove('active');
+      selectedUserId = null;
+    };
+
+    window.updateBalance = async function() {
+      if (!selectedUserId) return;
+
+      const newBalance = Number(document.getElementById('modalBalance').value);
+      
+      try {
+        await updateDoc(doc(db, 'users', selectedUserId), {
+          balance: newBalance
+        });
+
+        alert('Saldo atualizado com sucesso!');
+        closeModal();
+        await loadUsers();
+        await loadStats();
+      } catch (error) {
+        console.error('Erro ao atualizar saldo:', error);
+        alert('Erro ao atualizar saldo: ' + error.message);
+      }
+    };
+
+    window.toggleBan = async function(userId, currentBanned) {
+      const action = currentBanned ? 'desbanir' : 'banir';
+      
+      if (!confirm(`Tem certeza que deseja ${action} este usuário?`)) return;
+
+      try {
+        await updateDoc(doc(db, 'users', userId), {
+          banned: !currentBanned
+        });
+
+        alert(`Usuário ${action === 'banir' ? 'banido' : 'desbanido'} com sucesso!`);
+        await loadUsers();
+        await loadStats();
+      } catch (error) {
+        console.error('Erro ao atualizar status:', error);
+        alert('Erro: ' + error.message);
+      }
+    };
+
+    // ==========================================
+    // NOVA FUNÇÃO DE APROVAR SAQUE COM SEGURANÇA NA SESSÃO
+    // ==========================================
+    window.approveWithdrawal = async function(userId, withdrawalId) {
+      if (!confirm('Aprovar este saque? O PIX será enviado imediatamente via EvoPay.')) return;
+
+      // Busca o token salvo na sessão atual
+      let adminToken = sessionStorage.getItem('adminToken');
+      
+      // Se não tiver o token na memória, pede ao administrador
+      if (!adminToken) {
+        adminToken = prompt('🔒 Por segurança, digite o Token de Admin para autorizar pagamentos:');
+        
+        // Se o usuário clicar em "Cancelar" ou deixar vazio
+        if (!adminToken) {
+          alert('Operação cancelada. Token é obrigatório para aprovar saques.');
+          return;
+        }
+        
+        // Salva na sessão para não pedir novamente enquanto a aba estiver aberta
+        sessionStorage.setItem('adminToken', adminToken);
+      }
+
+      try {
+        const response = await fetch('/.netlify/functions/admin-approve-withdraw', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adminToken}`
+          },
+          body: JSON.stringify({ userId, withdrawId: withdrawalId })
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          alert('✅ Saque aprovado e PIX enviado com sucesso!');
+          await loadWithdrawals();
+          await loadStats();
+        } else {
+          // Se deu erro de autorização, limpa o token salvo para o admin digitar novamente na próxima
+          if (response.status === 401) {
+            sessionStorage.removeItem('adminToken');
+            alert('❌ Erro: Token de Admin inválido. Ele foi removido da sessão. Tente aprovar novamente.');
+          } else {
+            alert('❌ Erro ao aprovar: ' + (result.error || 'Falha desconhecida no servidor.'));
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao conectar com API de aprovação:', error);
+        alert('Erro de conexão ao tentar aprovar o saque.');
+      }
+    };
+
+    // ==========================================
+    // FUNÇÃO DE REJEITAR ORIGINAL (MANTIDA INTACTA)
+    // ==========================================
+    window.rejectWithdrawal = async function(userId, withdrawalId) {
+      if (!confirm('Rejeitar este saque? O saldo será devolvido ao usuário.')) return;
+
+      try {
+        const withdrawalDoc = await getDoc(doc(db, 'users', userId, 'withdrawals', withdrawalId));
+        const amount = withdrawalDoc.data().amount;
+
+        await updateDoc(doc(db, 'users', userId, 'withdrawals', withdrawalId), {
+          status: 'rejected'
+        });
+
+        // Devolver saldo (valor + taxa 10%)
+        const userDoc = await getDoc(doc(db, 'users', userId));
+        const currentBalance = userDoc.data().balance || 0;
+        await updateDoc(doc(db, 'users', userId), {
+          balance: currentBalance + (amount * 1.1)
+        });
+
+        alert('Saque rejeitado e saldo devolvido!');
+        await loadWithdrawals();
+        await loadStats();
+      } catch (error) {
+        console.error('Erro ao rejeitar saque:', error);
+        alert('Erro: ' + error.message);
+      }
+    };
+
+    window.logout = function() {
+      localStorage.removeItem('adminAuth');
+      sessionStorage.removeItem('adminToken'); // Limpa a senha do PIX ao sair
+      window.location.href = 'index.html';
+    };
+
+    // Carregar dados ao iniciar
+    loadDashboard();
+  </script>
+</body>
+</html>

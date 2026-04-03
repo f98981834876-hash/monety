@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monety Admin - Login</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 400px;
+      background: rgba(26, 26, 26, 0.8);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(34, 197, 94, 0.2);
+      border-radius: 20px;
+      padding: 40px;
+      animation: fadeIn 0.6s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .logo {
+      width: 60px;
+      height: 60px;
+      background: linear-gradient(135deg, #22c55e 0%, #15803d 100%);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 30px;
+      box-shadow: 0 10px 40px rgba(34, 197, 94, 0.3);
+    }
+
+    .logo span {
+      font-size: 32px;
+      font-weight: 800;
+      color: white;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #888;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      font-size: 14px;
+      color: #ddd;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px 16px;
+      background: rgba(34, 34, 34, 0.6);
+      border: 1px solid rgba(34, 197, 94, 0.2);
+      border-radius: 10px;
+      color: white;
+      font-size: 16px;
+      transition: all 0.3s ease;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #22c55e;
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
+    }
+
+    input::placeholder {
+      color: #666;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+      border: none;
+      border-radius: 10px;
+      color: white;
+      font-weight: 700;
+      font-size: 16px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 10px 30px rgba(34, 197, 94, 0.2);
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 15px 40px rgba(34, 197, 94, 0.3);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .error {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      animation: slideDown 0.3s ease-out;
+    }
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .loading {
+      display: none;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(34, 197, 94, 0.2);
+      border-top-color: #22c55e;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="logo">
+      <span>M</span>
+    </div>
+    <h1>Monety Admin</h1>
+    <p class="subtitle">Painel de Administração</p>
+
+    <div id="error" class="error" style="display: none;"></div>
+
+    <form id="loginForm">
+      <div class="form-group">
+        <label for="email">Email do Admin</label>
+        <input type="email" id="email" placeholder="admin@monety.app" required />
+      </div>
+
+      <div class="form-group">
+        <label for="password">Senha</label>
+        <input type="password" id="password" placeholder="Sua senha segura" required />
+      </div>
+
+      <div class="form-group">
+        <label for="adminToken">Token de Segurança PIX</label>
+        <input type="password" id="adminToken" placeholder="Insira o token para aprovar saques" required />
+      </div>
+
+      <button type="submit" id="loginBtn">
+        <span id="buttonText">ENTRAR NO PAINEL</span>
+        <span id="loading" class="loading">
+          <span class="spinner"></span>Autenticando...
+        </span>
+      </button>
+    </form>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js';
+    import { getAuth, signInWithEmailAndPassword } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js';
+    import { getFirestore, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js';
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBo05t4KVpfwF9biqW6DdthsFJAHjrDroE",
+      authDomain: "monety-site-2.firebaseapp.com",
+      projectId: "monety-site-2",
+      storageBucket: "monety-site-2.firebasestorage.app",
+      messagingSenderId: "99984573236",
+      appId: "1:99984573236:web:3dd0f46f383bf8fd211b61"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    const form = document.getElementById('loginForm');
+    const emailInput = document.getElementById('email');
+    const passwordInput = document.getElementById('password');
+    // Pegando o elemento do novo campo
+    const tokenInput = document.getElementById('adminToken');
+    const loginBtn = document.getElementById('loginBtn');
+    const errorDiv = document.getElementById('error');
+    const buttonText = document.getElementById('buttonText');
+    const loading = document.getElementById('loading');
+
+    // Verificar se já está logado
+    const adminAuth = localStorage.getItem('adminAuth');
+    if (adminAuth) {
+      window.location.href = 'dashboard.html';
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorDiv.style.display = 'none';
+      loginBtn.disabled = true;
+      buttonText.style.display = 'none';
+      loading.style.display = 'inline';
+
+      try {
+        const email = emailInput.value.trim();
+        const password = passwordInput.value;
+        const adminTokenValue = tokenInput.value.trim(); // Pega o valor do token digitado
+
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+
+        // Verificar se é admin
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (!userDoc.exists() || userDoc.data().role !== 'admin') {
+          throw new Error('Acesso negado. Você não é um administrador.');
+        }
+
+        // Salva a autenticação do Firebase
+        localStorage.setItem('adminAuth', JSON.stringify({ 
+          email: user.email, 
+          uid: user.uid 
+        }));
+        
+        // Salva o Token do Netlify APENAS para esta sessão (é apagado ao fechar a aba)
+        sessionStorage.setItem('adminToken', adminTokenValue);
+        
+        window.location.href = 'dashboard.html';
+      } catch (error) {
+        console.error('Login error:', error);
+        errorDiv.textContent = error.message || 'Email ou senha incorretos';
+        errorDiv.style.display = 'block';
+        loginBtn.disabled = false;
+        buttonText.style.display = 'inline';
+        loading.style.display = 'none';
+      }
+    });
+  </script>
+</body>
+</html>
