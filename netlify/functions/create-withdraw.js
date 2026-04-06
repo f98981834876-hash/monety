@@ -58,7 +58,7 @@ exports.handler = async (event) => {
     }
 
     const valorSaque = parseFloat(amount);
-    if (valorSaque < 35) {
+    if (valorSaque < 1) {
       return { statusCode: 400, headers, body: JSON.stringify({ error: 'O valor mínimo para saque é R$ 35,00' }) };
     }
 
