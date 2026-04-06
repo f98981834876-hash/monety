@@ -23,12 +23,12 @@ exports.handler = async (event) => {
     const data = JSON.parse(event.body);
     console.log("DADOS RECEBIDOS:", JSON.stringify(data));
 
-    // ✅ Identificação Robusta do ID
+    // ✅ Identificação do ID e Status
     const reference = data.id || data.reference || data.externalId || data.transactionId;
     const statusRecebido = (data.status || data.state || data.statusTransaction || '').toUpperCase();
 
     if (!reference) {
-      console.error("❌ ID de transação não encontrado no corpo do webhook.");
+      console.error("❌ ID de transação não encontrado.");
       return { statusCode: 400, body: 'ID faltando' };
     }
 
@@ -43,14 +43,12 @@ exports.handler = async (event) => {
     let depositRef = null;
     let depositData = null;
 
-    // 1. Busca por evopayId (mais comum)
     const q = await db.collection('deposits').where('evopayId', '==', reference).limit(1).get();
     
     if (!q.empty) {
       depositRef = q.docs[0].ref;
       depositData = q.docs[0].data();
     } else {
-      // 2. Busca direta pelo ID do documento
       const docDirect = await db.collection('deposits').doc(reference).get();
       if (docDirect.exists) {
         depositRef = docDirect.ref;
@@ -59,7 +57,7 @@ exports.handler = async (event) => {
     }
 
     if (!depositRef || !depositData) {
-      console.error(`❌ Transação ${reference} não existe no Firestore.`);
+      console.error(`❌ Transação ${reference} não encontrada.`);
       return { statusCode: 404, body: 'Transação não encontrada' };
     }
 
@@ -74,65 +72,113 @@ exports.handler = async (event) => {
       historyRef = hQuery.docs[0].ref;
     }
 
-    // 🔥 ATUALIZAÇÃO ATÔMICA
+    // 🔥 ATUALIZAÇÃO ATÔMICA (TRANSAÇÃO)
     await db.runTransaction(async (t) => {
       const userRef = db.collection('users').doc(userId);
       const userSnap = await t.get(userRef);
 
       if (!userSnap.exists) throw new Error("Usuário não encontrado");
       
-      // Se já estiver como concluído, para aqui para não duplicar saldo
       if (depositData.status === 'completed') {
-        console.log("Transação já processada anteriormente.");
+        console.log("Transação já processada.");
         return;
       }
 
       const amount = Number(depositData.amount || 0);
+      const userData = userSnap.data();
+      const emailPagador = userData.email?.split('@')[0] || 'Usuário';
 
-      // 1. Atualiza Depósito Principal
+      // 1. Atualiza Depósito Principal e Histórico
       t.update(depositRef, {
         status: 'completed',
         processedAt: admin.firestore.FieldValue.serverTimestamp()
       });
 
-      // 2. Atualiza Histórico do Usuário (se existir)
       if (historyRef) {
         t.update(historyRef, { status: 'completed' });
       }
 
-      // 3. Atualiza Saldo e Giros com INCREMENT (Segurança contra erros de soma)
+      // 2. Atualiza Saldo do Usuário que depositou
       t.update(userRef, {
         balance: admin.firestore.FieldValue.increment(amount),
         girosRoleta: admin.firestore.FieldValue.increment(1),
         totalDeposited: admin.firestore.FieldValue.increment(amount)
       });
 
-      // 4. Lógica de Afiliados (Nível 1, 2, 3)
-      const userData = userSnap.data();
+      // -----------------------------------------------------------
+      // 3. LÓGICA DE AFILIADOS (NÍVEL 1, 2 E 3)
+      // -----------------------------------------------------------
       if (userData.referredBy) {
+        // --- NÍVEL 1 (20% + 1 Giro) ---
         const l1Ref = db.collection('users').doc(userData.referredBy);
-        const bonusL1 = amount * 0.20;
+        const l1Snap = await t.get(l1Ref);
         
-        t.update(l1Ref, {
-          balance: admin.firestore.FieldValue.increment(bonusL1),
-          girosRoleta: admin.firestore.FieldValue.increment(1),
-          totalCommissions: admin.firestore.FieldValue.increment(bonusL1)
-        });
+        if (l1Snap.exists) {
+          const bonusL1 = amount * 0.20;
+          t.update(l1Ref, {
+            balance: admin.firestore.FieldValue.increment(bonusL1),
+            girosRoleta: admin.firestore.FieldValue.increment(1),
+            totalCommissions: admin.firestore.FieldValue.increment(bonusL1)
+          });
 
-        // Log da comissão nível 1
-        t.set(l1Ref.collection('transactions').doc(), {
-          type: 'commission',
-          amount: bonusL1,
-          status: 'completed',
-          description: `Indicação Nível 1: ${userData.email?.split('@')[0]}`,
-          createdAt: admin.firestore.FieldValue.serverTimestamp()
-        });
+          t.set(l1Ref.collection('transactions').doc(), {
+            type: 'commission',
+            amount: bonusL1,
+            status: 'completed',
+            description: `Indicação Nível 1: ${emailPagador}`,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+          });
 
-        // Repetir para Nível 2 e 3 se necessário (Seguindo a mesma lógica de increment)
+          // --- NÍVEL 2 (5%) ---
+          const l1Data = l1Snap.data();
+          if (l1Data.referredBy) {
+            const l2Ref = db.collection('users').doc(l1Data.referredBy);
+            const l2Snap = await t.get(l2Ref);
+
+            if (l2Snap.exists) {
+              const bonusL2 = amount * 0.05;
+              t.update(l2Ref, {
+                balance: admin.firestore.FieldValue.increment(bonusL2),
+                totalCommissions: admin.firestore.FieldValue.increment(bonusL2)
+              });
+
+              t.set(l2Ref.collection('transactions').doc(), {
+                type: 'commission',
+                amount: bonusL2,
+                status: 'completed',
+                description: `Indicação Nível 2: ${emailPagador}`,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+              });
+
+              // --- NÍVEL 3 (1%) ---
+              const l2Data = l2Snap.data();
+              if (l2Data.referredBy) {
+                const l3Ref = db.collection('users').doc(l2Data.referredBy);
+                const l3Snap = await t.get(l3Ref);
+
+                if (l3Snap.exists) {
+                  const bonusL3 = amount * 0.01;
+                  t.update(l3Ref, {
+                    balance: admin.firestore.FieldValue.increment(bonusL3),
+                    totalCommissions: admin.firestore.FieldValue.increment(bonusL3)
+                  });
+
+                  t.set(l3Ref.collection('transactions').doc(), {
+                    type: 'commission',
+                    amount: bonusL3,
+                    status: 'completed',
+                    description: `Indicação Nível 3: ${emailPagador}`,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                  });
+                }
+              }
+            }
+          }
+        }
       }
     });
 
-    console.log("✅ SALDO E HISTÓRICO ATUALIZADOS COM SUCESSO!");
+    console.log("✅ PROCESSAMENTO CONCLUÍDO COM SUCESSO!");
     return { statusCode: 200, body: 'OK' };
 
   } catch (error) {
