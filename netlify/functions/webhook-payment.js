@@ -23,7 +23,7 @@ exports.handler = async (event) => {
 
     console.log("=== DADOS RECEBIDOS DA EVOPAY ===", JSON.stringify(data, null, 2));
 
-    // ✅ IDENTIFICAÇÃO DO ID (O webhook da EvoPay envia o ID deles no campo 'id')
+    // ✅ IDENTIFICAÇÃO DO ID
     const reference =
       data.reference ||
       data.externalId ||
@@ -60,13 +60,13 @@ exports.handler = async (event) => {
     }
 
     // =========================================
-    // 🔥 BUSCA MELHORADA NO FIRESTORE
+    // 🔥 BUSCA DA TRANSAÇÃO NO FIRESTORE
     // =========================================
     let depositRef;
     let depositData;
     let userId;
 
-    // 1. Tenta busca direta pelo ID do documento
+    // 1. Tenta busca direta na coleção raiz 'deposits'
     const depositDoc = await db.collection('deposits').doc(reference).get();
 
     if (depositDoc.exists) {
@@ -74,7 +74,7 @@ exports.handler = async (event) => {
       depositData = depositDoc.data();
       userId = depositData.userId;
     } else {
-      // ✅ CORREÇÃO: Busca na coleção 'deposits' pelo novo campo 'evopayId'
+      // 2. Busca na coleção raiz pelo campo 'evopayId'
       const evopayQuery = await db.collection('deposits')
         .where('evopayId', '==', reference)
         .limit(1)
@@ -85,40 +85,54 @@ exports.handler = async (event) => {
         depositData = evopayQuery.docs[0].data();
         userId = depositData.userId;
       } else {
-        // Fallback para transactionId (se necessário)
+        // 3. Fallback: Busca em todas as subcoleções 'transactions'
         const transactionQuery = await db.collectionGroup('transactions')
-          .where('transactionId', '==', reference)
+          .where('evopayId', '==', reference)
           .limit(1)
           .get();
 
         if (transactionQuery.empty) {
-          // ✅ CORREÇÃO: Fallback final buscando evopayId em subcoleções
-          const fallbackEvopayQuery = await db.collectionGroup('transactions')
-            .where('evopayId', '==', reference)
-            .limit(1)
-            .get();
-
-          if (fallbackEvopayQuery.empty) {
-            console.error(`❌ ERRO: Nenhuma transação encontrada com ID: ${reference}`);
-            return {
-              statusCode: 404,
-              body: JSON.stringify({ success: false, error: 'Transação não encontrada.' })
-            };
-          } else {
-            depositRef = fallbackEvopayQuery.docs[0].ref;
-            depositData = fallbackEvopayQuery.docs[0].data();
-            userId = depositRef.parent.parent.id;
-          }
+          console.error(`❌ ERRO: Nenhuma transação encontrada com ID: ${reference}`);
+          return {
+            statusCode: 404,
+            body: JSON.stringify({ success: false, error: 'Transação não encontrada.' })
+          };
         } else {
           depositRef = transactionQuery.docs[0].ref;
           depositData = transactionQuery.docs[0].data();
-          userId = depositRef.parent.parent.id;
+          userId = depositRef.parent.parent.id; // Pega o ID do usuário dono da subcoleção
         }
       }
     }
 
     // =========================================
-    // 🔥 TRANSAÇÃO FIRESTORE (SEU CÓDIGO ORIGINAL)
+    // 🔥 NOVO: BUSCA O DOCUMENTO NO HISTÓRICO DO USUÁRIO
+    // =========================================
+    // Isso garante que o histórico financeiro na tela do usuário também seja atualizado.
+    let historyRef = null;
+    if (userId) {
+      const historyQuery = await db.collection('users').doc(userId).collection('transactions')
+        .where('evopayId', '==', reference)
+        .limit(1)
+        .get();
+
+      if (!historyQuery.empty) {
+        historyRef = historyQuery.docs[0].ref;
+      } else {
+        // Fallback por transactionId caso o evopayId não esteja gravado no histórico
+        const historyFallback = await db.collection('users').doc(userId).collection('transactions')
+          .where('transactionId', '==', depositData.transactionId || reference)
+          .limit(1)
+          .get();
+        
+        if (!historyFallback.empty) {
+          historyRef = historyFallback.docs[0].ref;
+        }
+      }
+    }
+
+    // =========================================
+    // 🔥 TRANSAÇÃO FIRESTORE (ATUALIZAÇÃO)
     // =========================================
     await db.runTransaction(async (transaction) => {
       const userRef = db.collection('users').doc(userId);
@@ -126,40 +140,15 @@ exports.handler = async (event) => {
 
       if (!userSnap.exists) throw new Error('Usuário não encontrado.');
 
-      if (
-        depositData.status === 'completed' ||
-        depositData.status === 'PAID' ||
-        depositData.status === 'COMPLETED'
-      ) {
+      // Evita processamento duplicado
+      if (depositData.status === 'completed' || depositData.status === 'PAID') {
         throw new Error('Depósito já processado.');
       }
 
       const userData = userSnap.data();
       const amount = depositData.amount || 0;
 
-      let level1Ref, level2Ref, level3Ref;
-      let level1Data, level2Data, level3Data;
-
-      if (userData.referredBy) {
-        level1Ref = db.collection('users').doc(userData.referredBy);
-        const level1Snap = await transaction.get(level1Ref);
-        if (level1Snap.exists) {
-          level1Data = level1Snap.data();
-          if (level1Data.referredBy) {
-            level2Ref = db.collection('users').doc(level1Data.referredBy);
-            const level2Snap = await transaction.get(level2Ref);
-            if (level2Snap.exists) {
-              level2Data = level2Snap.data();
-              if (level2Data.referredBy) {
-                level3Ref = db.collection('users').doc(level2Data.referredBy);
-                const level3Snap = await transaction.get(level3Ref);
-                if (level3Snap.exists) level3Data = level3Snap.data();
-              }
-            }
-          }
-        }
-      }
-
+      // 1. Atualiza o depósito principal na coleção 'deposits'
       transaction.update(depositRef, {
         status: 'completed',
         description: 'Depósito via PIX (Confirmado + 1 Giro)',
@@ -167,12 +156,23 @@ exports.handler = async (event) => {
         processedAt: admin.firestore.FieldValue.serverTimestamp()
       });
 
+      // 2. ✅ ATUALIZA O HISTÓRICO DO USUÁRIO (O que aparece na ProfilePage)
+      if (historyRef && historyRef.path !== depositRef.path) {
+        transaction.update(historyRef, {
+          status: 'completed',
+          description: 'Depósito via PIX (Confirmado + 1 Giro)',
+          paidAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+
+      // 3. Atualiza Saldo e Giros do Usuário
       transaction.update(userRef, {
         balance: (userData.balance || 0) + amount,
         girosRoleta: (userData.girosRoleta || 0) + 1,
         totalDeposited: (userData.totalDeposited || 0) + amount
       });
 
+      // Lógica de Comissões de Afiliados
       const registrarHistoricoComissao = (afiliadoRef, valorComissao, nivel, emailOrigem) => {
         const novaTransacaoRef = afiliadoRef.collection('transactions').doc();
         const nomeOrigem = emailOrigem ? emailOrigem.split('@')[0] : 'Usuário Oculto';
@@ -187,32 +187,50 @@ exports.handler = async (event) => {
 
       const emailPagador = userData.email || '';
 
-      if (level1Ref && level1Data) {
-        const comissaoL1 = amount * 0.20;
-        transaction.update(level1Ref, {
-          balance: (level1Data.balance || 0) + comissaoL1,
-          girosRoleta: (level1Data.girosRoleta || 0) + 1,
-          totalCommissions: (level1Data.totalCommissions || 0) + comissaoL1
-        });
-        registrarHistoricoComissao(level1Ref, comissaoL1, 1, emailPagador);
-      }
+      // Nível 1 (20%)
+      if (userData.referredBy) {
+        const l1Ref = db.collection('users').doc(userData.referredBy);
+        const l1Snap = await transaction.get(l1Ref);
+        if (l1Snap.exists) {
+          const l1Data = l1Snap.data();
+          const comissaoL1 = amount * 0.20;
+          transaction.update(l1Ref, {
+            balance: (l1Data.balance || 0) + comissaoL1,
+            girosRoleta: (l1Data.girosRoleta || 0) + 1,
+            totalCommissions: (l1Data.totalCommissions || 0) + comissaoL1
+          });
+          registrarHistoricoComissao(l1Ref, comissaoL1, 1, emailPagador);
 
-      if (level2Ref && level2Data) {
-        const comissaoL2 = amount * 0.05;
-        transaction.update(level2Ref, {
-          balance: (level2Data.balance || 0) + comissaoL2,
-          totalCommissions: (level2Data.totalCommissions || 0) + comissaoL2
-        });
-        registrarHistoricoComissao(level2Ref, comissaoL2, 2, emailPagador);
-      }
+          // Nível 2 (5%)
+          if (l1Data.referredBy) {
+            const l2Ref = db.collection('users').doc(l1Data.referredBy);
+            const l2Snap = await transaction.get(l2Ref);
+            if (l2Snap.exists) {
+              const l2Data = l2Snap.data();
+              const comissaoL2 = amount * 0.05;
+              transaction.update(l2Ref, {
+                balance: (l2Data.balance || 0) + comissaoL2,
+                totalCommissions: (l2Data.totalCommissions || 0) + comissaoL2
+              });
+              registrarHistoricoComissao(l2Ref, comissaoL2, 2, emailPagador);
 
-      if (level3Ref && level3Data) {
-        const comissaoL3 = amount * 0.01;
-        transaction.update(level3Ref, {
-          balance: (level3Data.balance || 0) + comissaoL3,
-          totalCommissions: (level3Data.totalCommissions || 0) + comissaoL3
-        });
-        registrarHistoricoComissao(level3Ref, comissaoL3, 3, emailPagador);
+              // Nível 3 (1%)
+              if (l2Data.referredBy) {
+                const l3Ref = db.collection('users').doc(l2Data.referredBy);
+                const l3Snap = await transaction.get(l3Ref);
+                if (l3Snap.exists) {
+                  const l3Data = l3Snap.data();
+                  const comissaoL3 = amount * 0.01;
+                  transaction.update(l3Ref, {
+                    balance: (l3Data.balance || 0) + comissaoL3,
+                    totalCommissions: (l3Data.totalCommissions || 0) + comissaoL3
+                  });
+                  registrarHistoricoComissao(l3Ref, comissaoL3, 3, emailPagador);
+                }
+              }
+            }
+          }
+        }
       }
     });
 
