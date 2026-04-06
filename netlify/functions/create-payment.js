@@ -80,7 +80,7 @@ exports.handler = async (event) => {
       reference: transactionId 
     };
 
-    // LOG IMPORTANTE: Verifique isso no painel da Netlify se der erro novamente
+    // LOG IMPORTANTE
     console.log('=== PAYLOAD ENVIADO PARA EVOPAY ===', JSON.stringify(evoPayPayload));
 
     // 4. Chamada à EvoPay
@@ -91,8 +91,12 @@ exports.handler = async (event) => {
       }
     });
 
-    // 5. Extração do Código PIX
+    // 5. Extração do Código PIX e do ID da EvoPay
     const paymentData = response.data;
+    
+    // ✅ CORREÇÃO: Captura o ID retornado pela EvoPay para o webhook conseguir localizar depois
+    const evopayId = paymentData?.id || paymentData?.data?.id;
+
     const brCode = 
       paymentData?.qrCodeText || 
       paymentData?.qrcode || 
@@ -119,6 +123,7 @@ exports.handler = async (event) => {
       pixCode: brCode, 
       qrImage: qrImage, 
       transactionId: transactionId,
+      evopayId: evopayId || null, // ✅ CORREÇÃO: Salva o ID da EvoPay
       status: 'pending',
       gateway: 'evopay',
       createdAt: timestamp
@@ -132,6 +137,7 @@ exports.handler = async (event) => {
       status: 'pending',
       description: 'Depósito via PIX',
       transactionId: transactionId,
+      evopayId: evopayId || null, // ✅ CORREÇÃO: Salva também aqui por segurança
       createdAt: timestamp
     });
 
@@ -147,13 +153,13 @@ exports.handler = async (event) => {
         pixCode: brCode,
         qrImage: qrImage,
         transactionId: transactionId,
+        evopayId: evopayId,
         pix_code: brCode,
         qr_image: qrImage 
       })
     };
 
   } catch (error) {
-    // Log melhorado para capturar a resposta exata da EvoPay
     const errorDetails = error.response?.data || error.message;
     console.error("=== ERRO NA CRIAÇÃO DO PIX ===", JSON.stringify(errorDetails));
     
