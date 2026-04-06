@@ -1,5 +1,6 @@
 const admin = require('firebase-admin');
 
+// Inicializa o admin caso ainda não tenha sido inicializado
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -13,158 +14,218 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 exports.handler = async (event) => {
-  // 1. LOG DE ENTRADA - Se isso não aparecer, o problema é na EvoPay/URL
-  console.log("--- INÍCIO DO PROCESSAMENTO ---");
-
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
   try {
     const data = JSON.parse(event.body);
-    console.log("=== DADOS RECEBIDOS ===", JSON.stringify(data));
 
-    // Identificação da Referência
-    const reference = data.reference || data.externalId || data.transactionId || data.id || data.metadata?.reference;
-    const statusRaw = data.status || data.state || data.statusTransaction || '';
-    const status = statusRaw.toUpperCase();
+    console.log("=== DADOS RECEBIDOS DA EVOPAY ===", JSON.stringify(data, null, 2));
 
-    console.log(`Buscando Transação: ${reference} | Status: ${status}`);
+    // ✅ IDENTIFICAÇÃO DO ID
+    const reference =
+      data.reference ||
+      data.externalId ||
+      data.metadata?.reference ||
+      data.metadata?.externalId ||
+      data.transactionId ||
+      data.id ||
+      data.requestNumber;
 
-    const statusPagos = ['COMPLETED', 'PAID', 'PAID_OUT', 'APPROVED', 'PAGO', 'SUCCESS'];
+    const status =
+      data.status ||
+      data.state ||
+      data.statusTransaction ||
+      data.paymentStatus;
+
+    console.log(`Buscando no banco a transação com ID: ${reference} | Status recebido: ${status}`);
+
+    const statusPagos = [
+      'COMPLETED',
+      'completed',
+      'PAID',
+      'PAID_OUT',
+      'APPROVED',
+      'approved',
+      'pago'
+    ];
 
     if (!statusPagos.includes(status)) {
-      console.log(`Pagamento ainda não aprovado (Status: ${status}).`);
-      return { statusCode: 200, body: 'Aguardando aprovação.' };
+      console.log(`Status ${status} ignorado.`);
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ success: true, message: 'Status ignorado.' })
+      };
     }
 
-    // --- BUSCA DA TRANSAÇÃO ---
+    // =========================================
+    // 🔥 BUSCA DA TRANSAÇÃO NO FIRESTORE
+    // =========================================
     let depositRef;
     let depositData;
     let userId;
 
-    // Busca na coleção global
+    // 1. Tenta busca direta na coleção raiz 'deposits'
     const depositDoc = await db.collection('deposits').doc(reference).get();
+
     if (depositDoc.exists) {
       depositRef = depositDoc.ref;
       depositData = depositDoc.data();
       userId = depositData.userId;
     } else {
-      // Busca por campo evopayId
-      const q = await db.collection('deposits').where('evopayId', '==', reference).limit(1).get();
-      if (!q.empty) {
-        depositRef = q.docs[0].ref;
-        depositData = q.docs[0].data();
+      // 2. Busca na coleção raiz pelo campo 'evopayId'
+      const evopayQuery = await db.collection('deposits')
+        .where('evopayId', '==', reference)
+        .limit(1)
+        .get();
+
+      if (!evopayQuery.empty) {
+        depositRef = evopayQuery.docs[0].ref;
+        depositData = evopayQuery.docs[0].data();
         userId = depositData.userId;
+      } else {
+        // 3. Fallback: Busca em todas as subcoleções 'transactions'
+        const transactionQuery = await db.collectionGroup('transactions')
+          .where('evopayId', '==', reference)
+          .limit(1)
+          .get();
+
+        if (transactionQuery.empty) {
+          console.error(`❌ ERRO: Nenhuma transação encontrada com ID: ${reference}`);
+          return {
+            statusCode: 404,
+            body: JSON.stringify({ success: false, error: 'Transação não encontrada.' })
+          };
+        } else {
+          depositRef = transactionQuery.docs[0].ref;
+          depositData = transactionQuery.docs[0].data();
+          userId = depositRef.parent.parent.id; // Pega o ID do usuário dono da subcoleção
+        }
       }
     }
 
-    if (!depositRef) {
-      console.error("❌ Depósito não encontrado no banco.");
-      return { statusCode: 404, body: 'Depósito não encontrado.' };
-    }
-
-    // --- BUSCA DO HISTÓRICO (O QUE APARECE NA TELA DO USUÁRIO) ---
-    // Tentamos achar o documento dentro de users/{id}/transactions
+    // =========================================
+    // 🔥 NOVO: BUSCA O DOCUMENTO NO HISTÓRICO DO USUÁRIO
+    // =========================================
+    // Isso garante que o histórico financeiro na tela do usuário também seja atualizado.
     let historyRef = null;
-    const historyQuery = await db.collection('users').doc(userId).collection('transactions')
-      .where('evopayId', '==', reference).limit(1).get();
-    
-    if (!historyQuery.empty) {
-      historyRef = historyQuery.docs[0].ref;
+    if (userId) {
+      const historyQuery = await db.collection('users').doc(userId).collection('transactions')
+        .where('evopayId', '==', reference)
+        .limit(1)
+        .get();
+
+      if (!historyQuery.empty) {
+        historyRef = historyQuery.docs[0].ref;
+      } else {
+        // Fallback por transactionId caso o evopayId não esteja gravado no histórico
+        const historyFallback = await db.collection('users').doc(userId).collection('transactions')
+          .where('transactionId', '==', depositData.transactionId || reference)
+          .limit(1)
+          .get();
+        
+        if (!historyFallback.empty) {
+          historyRef = historyFallback.docs[0].ref;
+        }
+      }
     }
 
-    // --- INÍCIO DA ATUALIZAÇÃO FINANCEIRA ---
+    // =========================================
+    // 🔥 TRANSAÇÃO FIRESTORE (ATUALIZAÇÃO)
+    // =========================================
     await db.runTransaction(async (transaction) => {
       const userRef = db.collection('users').doc(userId);
       const userSnap = await transaction.get(userRef);
 
       if (!userSnap.exists) throw new Error('Usuário não encontrado.');
+
+      // Evita processamento duplicado
       if (depositData.status === 'completed' || depositData.status === 'PAID') {
-        return; // Já processado
+        throw new Error('Depósito já processado.');
       }
 
       const userData = userSnap.data();
-      const amount = Number(depositData.amount);
+      const amount = depositData.amount || 0;
 
-      // 1. Atualiza depósito global
+      // 1. Atualiza o depósito principal na coleção 'deposits'
       transaction.update(depositRef, {
         status: 'completed',
+        description: 'Depósito via PIX (Confirmado + 1 Giro)',
+        paidAt: admin.firestore.FieldValue.serverTimestamp(),
         processedAt: admin.firestore.FieldValue.serverTimestamp()
       });
 
-      // 2. ATUALIZA O HISTÓRICO (Muda "Pendente" para "Concluído" na tela)
-      if (historyRef) {
-        transaction.update(historyRef, { status: 'completed' });
+      // 2. ✅ ATUALIZA O HISTÓRICO DO USUÁRIO (O que aparece na ProfilePage)
+      if (historyRef && historyRef.path !== depositRef.path) {
+        transaction.update(historyRef, {
+          status: 'completed',
+          description: 'Depósito via PIX (Confirmado + 1 Giro)',
+          paidAt: admin.firestore.FieldValue.serverTimestamp()
+        });
       }
 
-      // 3. Atualiza Saldo do Usuário
+      // 3. Atualiza Saldo e Giros do Usuário
       transaction.update(userRef, {
-        balance: admin.firestore.FieldValue.increment(amount),
-        girosRoleta: admin.firestore.FieldValue.increment(1),
-        totalDeposited: admin.firestore.FieldValue.increment(amount)
+        balance: (userData.balance || 0) + amount,
+        girosRoleta: (userData.girosRoleta || 0) + 1,
+        totalDeposited: (userData.totalDeposited || 0) + amount
       });
 
-      // --- LÓGICA DE AFILIADOS (NÍVEIS 1, 2 E 3) ---
-      const emailPagador = userData.email || 'Usuário';
+      // Lógica de Comissões de Afiliados
+      const registrarHistoricoComissao = (afiliadoRef, valorComissao, nivel, emailOrigem) => {
+        const novaTransacaoRef = afiliadoRef.collection('transactions').doc();
+        const nomeOrigem = emailOrigem ? emailOrigem.split('@')[0] : 'Usuário Oculto';
+        transaction.set(novaTransacaoRef, {
+          type: 'commission',
+          amount: valorComissao,
+          status: 'completed',
+          description: `Indicação Nível ${nivel}: ${nomeOrigem}`,
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      };
 
-      // NÍVEL 1
+      const emailPagador = userData.email || '';
+
+      // Nível 1 (20%)
       if (userData.referredBy) {
         const l1Ref = db.collection('users').doc(userData.referredBy);
         const l1Snap = await transaction.get(l1Ref);
         if (l1Snap.exists) {
+          const l1Data = l1Snap.data();
           const comissaoL1 = amount * 0.20;
           transaction.update(l1Ref, {
-            balance: admin.firestore.FieldValue.increment(comissaoL1),
-            girosRoleta: admin.firestore.FieldValue.increment(1), // Ganha 1 giro por indicação
-            totalCommissions: admin.firestore.FieldValue.increment(comissaoL1)
+            balance: (l1Data.balance || 0) + comissaoL1,
+            girosRoleta: (l1Data.girosRoleta || 0) + 1,
+            totalCommissions: (l1Data.totalCommissions || 0) + comissaoL1
           });
-          // Registro no histórico do afiliado
-          transaction.set(l1Ref.collection('transactions').doc(), {
-            type: 'commission',
-            amount: comissaoL1,
-            status: 'completed',
-            description: `Indicação Nível 1: ${emailPagador.split('@')[0]}`,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
-          });
+          registrarHistoricoComissao(l1Ref, comissaoL1, 1, emailPagador);
 
-          // NÍVEL 2
-          const l1Data = l1Snap.data();
+          // Nível 2 (5%)
           if (l1Data.referredBy) {
             const l2Ref = db.collection('users').doc(l1Data.referredBy);
             const l2Snap = await transaction.get(l2Ref);
             if (l2Snap.exists) {
+              const l2Data = l2Snap.data();
               const comissaoL2 = amount * 0.05;
               transaction.update(l2Ref, {
-                balance: admin.firestore.FieldValue.increment(comissaoL2),
-                totalCommissions: admin.firestore.FieldValue.increment(comissaoL2)
+                balance: (l2Data.balance || 0) + comissaoL2,
+                totalCommissions: (l2Data.totalCommissions || 0) + comissaoL2
               });
-              transaction.set(l2Ref.collection('transactions').doc(), {
-                type: 'commission',
-                amount: comissaoL2,
-                status: 'completed',
-                description: `Indicação Nível 2: ${emailPagador.split('@')[0]}`,
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
-              });
+              registrarHistoricoComissao(l2Ref, comissaoL2, 2, emailPagador);
 
-              // NÍVEL 3
-              const l2Data = l2Snap.data();
+              // Nível 3 (1%)
               if (l2Data.referredBy) {
                 const l3Ref = db.collection('users').doc(l2Data.referredBy);
                 const l3Snap = await transaction.get(l3Ref);
                 if (l3Snap.exists) {
+                  const l3Data = l3Snap.data();
                   const comissaoL3 = amount * 0.01;
                   transaction.update(l3Ref, {
-                    balance: admin.firestore.FieldValue.increment(comissaoL3),
-                    totalCommissions: admin.firestore.FieldValue.increment(comissaoL3)
+                    balance: (l3Data.balance || 0) + comissaoL3,
+                    totalCommissions: (l3Data.totalCommissions || 0) + comissaoL3
                   });
-                  transaction.set(l3Ref.collection('transactions').doc(), {
-                    type: 'commission',
-                    amount: comissaoL3,
-                    status: 'completed',
-                    description: `Indicação Nível 3: ${emailPagador.split('@')[0]}`,
-                    createdAt: admin.firestore.FieldValue.serverTimestamp()
-                  });
+                  registrarHistoricoComissao(l3Ref, comissaoL3, 3, emailPagador);
                 }
               }
             }
@@ -173,11 +234,10 @@ exports.handler = async (event) => {
       }
     });
 
-    console.log("✅ Sucesso total.");
-    return { statusCode: 200, body: 'OK' };
+    return { statusCode: 200, body: JSON.stringify({ success: true }) };
 
   } catch (error) {
-    console.error("❌ ERRO NO WEBHOOK:", error.message);
-    return { statusCode: 500, body: error.message };
+    console.error('❌ Erro no webhook:', error);
+    return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
   }
 };
