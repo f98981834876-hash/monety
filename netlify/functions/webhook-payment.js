@@ -1,5 +1,6 @@
 const admin = require('firebase-admin');
 
+// Inicializa o admin caso ainda não tenha sido inicializado
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -20,41 +21,31 @@ exports.handler = async (event) => {
   try {
     const data = JSON.parse(event.body);
     
-    // 🚨 LOG EXTREMAMENTE IMPORTANTE: Vai aparecer no painel da Netlify
-    console.log("=== PAYLOAD RECEBIDO DO GATEWAY ===", JSON.stringify(data, null, 2));
+    // 🔥 LOG VITAL: Isso vai mostrar exatamente o que a EvoPay enviou lá no painel da Netlify
+    console.log("=== DADOS RECEBIDOS DA EVOPAY ===", JSON.stringify(data, null, 2));
 
-    // Captura o ID da transação independente do nome que o gateway usar
-    const txId = data.reference || data.transactionId || data.idTransaction || data.requestNumber || data.id;
-    
-    // Captura o status da transação
-    const txStatus = data.status || data.statusTransaction || data.state;
+    // Captura o ID e o Status (tenta vários nomes comuns usados por gateways)
+    const reference = data.reference || data.transactionId || data.id || data.requestNumber;
+    const status = data.status || data.state || data.statusTransaction;
 
-    console.log(`=== PROCESSANDO WEBHOOK: ID Encontrado: ${txId} - Status: ${txStatus} ===`);
+    console.log(`Buscando no banco a transação com ID: ${reference} | Status recebido: ${status}`);
 
-    if (!txId) {
-      console.error("ERRO: O Gateway não enviou um ID de transação válido.");
-      return { statusCode: 400, body: JSON.stringify({ error: 'ID da transação não encontrado no payload.' }) };
+    // Aceita várias variações de status pago
+    const statusPagos = ['PAID', 'completed', 'PAID_OUT', 'APPROVED', 'approved', 'pago'];
+    if (!statusPagos.includes(status)) {
+      console.log(`Status ${status} ignorado (não é pagamento aprovado).`);
+      return { statusCode: 200, body: JSON.stringify({ success: true, message: 'Status ignorado.' }) };
     }
 
-    // Aceita várias variações de "Pago"
-    const statusPagos = ['PAID', 'completed', 'PAID_OUT', 'APPROVED', 'pago', 'approved'];
-    
-    if (!statusPagos.includes(txStatus)) {
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ success: true, message: `Status '${txStatus}' ignorado (não é pagamento aprovado).` }),
-      };
-    }
-
-    // Busca a transação no Firestore
     const transactionQuery = await db.collectionGroup('transactions')
-      .where('transactionId', '==', txId)
+      .where('transactionId', '==', reference)
       .limit(1)
       .get();
 
     if (transactionQuery.empty) {
-      console.error(`ERRO: Transação com ID ${txId} não encontrada no banco.`);
-      return { statusCode: 404, body: JSON.stringify({ error: 'Transação não encontrada.' }) };
+      // Se cair aqui, o ID que a EvoPay mandou não é o mesmo que está no Firebase!
+      console.error(`❌ ERRO: Nenhuma transação encontrada no Firebase com o ID: ${reference}`);
+      return { statusCode: 404, body: JSON.stringify({ success: false, error: 'Transação não encontrada.' }) };
     }
 
     const depositDoc = transactionQuery.docs[0];
@@ -62,21 +53,19 @@ exports.handler = async (event) => {
     const depositData = depositDoc.data();
     const userId = depositRef.parent.parent.id; 
 
-    // O resto da sua lógica de comissões (Transaction do Firestore) continua exatamente igual
+    // Inicia a transação no Firestore (Sua lógica original de comissões mantida)
     await db.runTransaction(async (transaction) => {
-      
       const userRef = db.collection('users').doc(userId);
       const userSnap = await transaction.get(userRef);
 
       if (!userSnap.exists) throw new Error('Usuário não encontrado.');
-      if (depositData.status === 'completed' || depositData.status === 'PAID') {
-        throw new Error('Este depósito já foi processado anteriormente.');
-      }
+      if (depositData.status === 'completed' || depositData.status === 'PAID') throw new Error('Depósito já processado.');
 
       const userData = userSnap.data();
       const amount = depositData.amount || 0;
       
-      let level1Ref, level2Ref, level3Ref, level1Data, level2Data, level3Data;
+      let level1Ref, level2Ref, level3Ref;
+      let level1Data, level2Data, level3Data;
 
       if (userData.referredBy) {
         level1Ref = db.collection('users').doc(userData.referredBy);
@@ -97,8 +86,8 @@ exports.handler = async (event) => {
           }
         }
       }
-
-      // ATUALIZAÇÕES
+      
+      // Atualiza o documento principal (Muda de pending para completed)
       transaction.update(depositRef, { 
         status: 'completed',
         description: 'Depósito via PIX (Confirmado + 1 Giro)',
@@ -155,10 +144,11 @@ exports.handler = async (event) => {
       }
     });
 
-    return { statusCode: 200, body: JSON.stringify({ success: true, message: 'Depósito processado.' }) };
+    console.log("✅ Pagamento processado e banco atualizado com sucesso!");
+    return { statusCode: 200, body: JSON.stringify({ success: true, message: 'Processado com sucesso.' }) };
 
   } catch (error) {
-    console.error('Erro geral no webhook:', error);
+    console.error('❌ Erro na transação de webhook:', error);
     return { statusCode: 500, body: JSON.stringify({ success: false, error: error.message }) };
   }
 };
