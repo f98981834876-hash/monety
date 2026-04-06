@@ -74,25 +74,49 @@ exports.handler = async (event) => {
       depositData = depositDoc.data();
       userId = depositData.userId;
     } else {
-
-      // fallback antigo (mantido)
-      const transactionQuery = await db.collectionGroup('transactions')
-        .where('transactionId', '==', reference)
+      // ✅ CORREÇÃO: Busca na collection deposits pelo campo evopayId
+      const evopayQuery = await db.collection('deposits')
+        .where('evopayId', '==', reference)
         .limit(1)
         .get();
 
-      if (transactionQuery.empty) {
-        console.error(`❌ ERRO: Nenhuma transação encontrada com ID: ${reference}`);
-        return {
-          statusCode: 404,
-          body: JSON.stringify({ success: false, error: 'Transação não encontrada.' })
-        };
-      }
+      if (!evopayQuery.empty) {
+        depositRef = evopayQuery.docs[0].ref;
+        depositData = evopayQuery.docs[0].data();
+        userId = depositData.userId;
+      } else {
+        // fallback antigo (mantido)
+        const transactionQuery = await db.collectionGroup('transactions')
+          .where('transactionId', '==', reference)
+          .limit(1)
+          .get();
 
-      const depositDocFallback = transactionQuery.docs[0];
-      depositRef = depositDocFallback.ref;
-      depositData = depositDocFallback.data();
-      userId = depositRef.parent.parent.id;
+        if (transactionQuery.empty) {
+          // ✅ CORREÇÃO: Fallback extra buscando evopayId no collectionGroup
+          const fallbackEvopayQuery = await db.collectionGroup('transactions')
+            .where('evopayId', '==', reference)
+            .limit(1)
+            .get();
+
+          if (fallbackEvopayQuery.empty) {
+            console.error(`❌ ERRO: Nenhuma transação encontrada com ID (evopayId ou transactionId): ${reference}`);
+            return {
+              statusCode: 404,
+              body: JSON.stringify({ success: false, error: 'Transação não encontrada.' })
+            };
+          } else {
+            const depositDocFallback = fallbackEvopayQuery.docs[0];
+            depositRef = depositDocFallback.ref;
+            depositData = depositDocFallback.data();
+            userId = depositRef.parent.parent.id;
+          }
+        } else {
+          const depositDocFallback = transactionQuery.docs[0];
+          depositRef = depositDocFallback.ref;
+          depositData = depositDocFallback.data();
+          userId = depositRef.parent.parent.id;
+        }
+      }
     }
 
     // =========================================
